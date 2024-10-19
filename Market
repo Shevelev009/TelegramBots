@@ -1,0 +1,99 @@
+import random
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext, JobQueue
+import logging
+import requests
+
+# Логирование для отслеживания работы бота
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# Примеры контента для персонажа
+character_quotes = [
+    "Сегодня я решил почитать новости. Знаете, они стали такие скучные...",
+    "Как думаете, что важнее — кофе или хороший сон? У меня с этим явно проблемы.",
+    "Сегодня я придумал новую шутку: зачем ходить в зал, если можно поспать на диване?",
+    "Интересный факт: если ты не знаешь, что написать, просто скажи 'Интересный факт'.",
+    "В последнее время столько всего происходит. Думаю, пора завести кота."
+]
+
+def get_random_news():
+    """ Функция для получения случайных новостей с внешнего API """
+    try:
+        response = requests.get("https://newsapi.org/v2/top-headlines", params={
+            'country': 'us',
+            'apiKey': 'YOUR_NEWSAPI_KEY'
+        })
+        news = response.json()
+        if news['status'] == 'ok':
+            article = random.choice(news['articles'])
+            return f"Свежая новость: {article['title']}\n{article['url']}"
+    except Exception as e:
+        print(f"Ошибка при получении новостей: {e}")
+        return None
+
+def get_weather():
+    """ Функция для получения информации о погоде через API """
+    try:
+        response = requests.get("https://api.openweathermap.org/data/2.5/weather", params={
+            'q': 'Moscow',
+            'appid': 'YOUR_OPENWEATHER_API_KEY',
+            'units': 'metric'
+        })
+        weather = response.json()
+        if response.status_code == 200:
+            return f"Погода в Москве: {weather['main']['temp']}°C, {weather['weather'][0]['description']}."
+    except Exception as e:
+        print(f"Ошибка при получении погоды: {e}")
+        return None
+
+def generate_content():
+    """ Генерация поста для блога вымышленного персонажа """
+    quote = random.choice(character_quotes)
+    news = get_random_news()
+    weather = get_weather()
+
+    post_content = f"{quote}\n\n"
+    if weather:
+        post_content += f"{weather}\n"
+    if news:
+        post_content += f"{news}\n"
+
+    return post_content
+
+def publish_post(context: CallbackContext):
+    """ Публикация сгенерированного контента в канал """
+    chat_id = context.job.context['chat_id']
+    post_content = generate_content()
+    context.bot.send_message(chat_id=chat_id, text=post_content)
+
+def start(update: Update, context: CallbackContext) -> None:
+    """ Стартовая команда для подписки на блог """
+    chat_id = update.message.chat_id
+    update.message.reply_text("Добро пожаловать в блог вымышленного персонажа! Посты будут публиковаться автоматически.")
+    
+    # Планируем публикации каждую 1 час (3600 секунд)
+    context.job_queue.run_repeating(publish_post, interval=3600, first=10, context={'chat_id': chat_id})
+
+def stop(update: Update, context: CallbackContext) -> None:
+    """ Команда для остановки публикаций """
+    chat_id = update.message.chat_id
+    update.message.reply_text("Публикации в этом канале приостановлены.")
+    # Останавливаем все запланированные задачи
+    context.job_queue.stop()
+
+def main():
+    TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+    
+    updater = Updater(TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+
+    # Команды
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("stop", stop))
+
+    # Запуск бота
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
